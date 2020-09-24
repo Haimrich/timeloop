@@ -122,6 +122,24 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
       specs.energy_per_hop = energy_per_hop;
   }
 
+  // Latency specs
+  std::string memory_interfaces_config;
+  if (network.lookupValue("memory_interfaces", memory_interfaces_config)) {
+      std::stringstream ss(memory_interfaces_config);
+      std::uint64_t n;
+
+      while(ss >> n) 
+        specs.memory_interfaces.push_back(n);
+  }
+  double router_latency;
+  if (network.lookupValue("router-latency", router_latency)) {
+      specs.router_latency = router_latency;
+  }
+  double link_latency;
+  if (network.lookupValue("link-latency", link_latency)) {
+      specs.link_latency = link_latency;
+  }
+
   return specs;
 }
 
@@ -454,6 +472,11 @@ std::uint64_t LegacyNetwork::WordBits() const
 {
   assert(is_specced_);
   return specs_.word_bits.Get();
+}
+
+std::uint64_t LegacyNetwork::Cycles() const
+{
+  return stats_.cycles;
 }
 
 //

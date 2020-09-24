@@ -63,6 +63,11 @@ class LegacyNetwork : public Network
     Attribute<double> tile_width; // um
     Attribute<double> energy_per_hop; //pJ
 
+    // Latency attributes
+    std::vector<std::uint64_t> memory_interfaces;
+    Attribute<double> link_latency;   // Link Latency per Element. Ex. 1 Cycles / 4 Elements link-width = 0.25
+    Attribute<double> router_latency; // Router Latency per Element. Ex. 3 Cycles / 4 Elements per op. = 0.75
+
     const std::string Type() const override { return type; }
 
     // Serialization
@@ -105,6 +110,9 @@ class LegacyNetwork : public Network
     problem::PerDataSpace<double> energy_per_hop;
     problem::PerDataSpace<double> energy;
     problem::PerDataSpace<double> spatial_reduction_energy;
+
+    std::uint64_t cycles;
+    std::uint64_t mesh_x, mesh_y, map_x, map_y;
 
     // Redundant stats with outer buffer.
     problem::PerDataSpace<std::uint64_t> utilized_instances;    
@@ -195,6 +203,8 @@ class LegacyNetwork : public Network
   void ComputeNetworkEnergy();
   void ComputeSpatialReductionEnergy();
   void ComputePerformance();
+
+  std::uint64_t Cycles() const;
 
   std::uint64_t WordBits() const;
 

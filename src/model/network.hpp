@@ -92,6 +92,7 @@ class Network : public Module
 
   // STAT_ACCESSOR_HEADER(virtual double, Energy) = 0;
   virtual double Energy(problem::Shape::DataSpaceID pv = problem::GetShape()->NumDataSpaces) const = 0;
+  virtual std::uint64_t Cycles() const { return 0; };
 
   virtual std::string Name() const = 0;
   virtual bool DistributedMulticastSupported() const = 0;
