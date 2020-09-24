@@ -260,6 +260,7 @@ class BufferLevel : public Level
   static void ValidateTopology(BufferLevel::Specs& specs);
 
   Specs& GetSpecs() { return specs_; }
+  std::vector<loop::Descriptor>& GetSubNest() { return subnest_; }
   
   bool HardwareReductionSupported() override;
 
