@@ -112,7 +112,8 @@ class LegacyNetwork : public Network
     problem::PerDataSpace<double> spatial_reduction_energy;
 
     std::uint64_t cycles;
-    std::uint64_t mesh_x, mesh_y, map_x, map_y;
+    std::uint64_t meshX, meshY, mapX, mapY;
+    double throttling;
 
     // Redundant stats with outer buffer.
     problem::PerDataSpace<std::uint64_t> utilized_instances;    
@@ -202,8 +203,10 @@ class LegacyNetwork : public Network
   EvalStatus ComputeAccesses(const tiling::CompoundTile& tile, const bool break_on_failure);
   void ComputeNetworkEnergy();
   void ComputeSpatialReductionEnergy();
-  void ComputePerformance();
 
+  void ComputePerformance();
+  bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
+  spacetime::Dimension FindMulticastAxis(problem::Shape::DataSpaceID dataspace_id, unsigned multicast_factor, std::vector<loop::Descriptor> mapping_nest);
   std::uint64_t Cycles() const;
 
   std::uint64_t WordBits() const;

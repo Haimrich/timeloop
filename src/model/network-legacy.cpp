@@ -26,9 +26,11 @@
  */
 
 #include <iostream>
+#include <memory>
 
 #include "model/util.hpp"
 #include "model/level.hpp"
+#include "model/buffer.hpp"
 #include "pat/pat.hpp"
 
 #include <boost/archive/xml_iarchive.hpp>
@@ -454,16 +456,198 @@ void LegacyNetwork::ComputeSpatialReductionEnergy()
 
 void LegacyNetwork::ComputePerformance()
 {
-  // FIXME.
-  // problem::PerDataSpace<double> unconstrained_read_bandwidth;
-  // problem::PerDataSpace<double> unconstrained_write_bandwidth;
-  // for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
-  // {
-  //   auto pv = problem::Shape::DataSpaceID(pvi);
-  //   auto total_ingresses =
-  //     std::accumulate(network_.stats_.ingresses.at(pv).begin(),
-  //                     network_.stats_.ingresses.at(pv).end(), static_cast<std::uint64_t>(0));
-  // }
+  stats_.cycles = 0;
+
+  if (!specs_.router_latency.IsSpecified() || !specs_.link_latency.IsSpecified() || !specs_.memory_interfaces.size() ) return;
+
+  auto source = source_.lock();
+  auto sink = sink_.lock();
+  if (!source || !sink) return;
+  
+  std::shared_ptr<BufferLevel> buffer_sink = std::dynamic_pointer_cast<BufferLevel>(sink);
+  auto mapping_nest = buffer_sink->GetSubNest();
+  auto read_buffer_specs = buffer_sink->GetSpecs();
+  
+  std::shared_ptr<BufferLevel> buffer_source = std::dynamic_pointer_cast<BufferLevel>(source);
+  auto fill_buffer_specs = buffer_source->GetSpecs();
+
+  std::uint64_t utilized_instances = stats_.fanout.at(0);
+  std::uint64_t instances = fill_buffer_specs.instances.Get() / read_buffer_specs.instances.Get();
+  std::uint64_t meshX = fill_buffer_specs.meshX.Get() / read_buffer_specs.meshX.Get();
+  std::uint64_t meshY = instances / meshX;
+
+  std::uint64_t compute_cycles = buffer_source->Cycles(); // FIXME
+
+  if (!std::all_of(specs_.memory_interfaces.begin(), specs_.memory_interfaces.end(), [&](std::uint64_t p) { return p < instances; })) return; // FIXME
+
+  int mapX = 1;
+  int mapY = 1;
+  for (auto loop = mapping_nest.rbegin(); loop != mapping_nest.rend(); loop++)
+  {
+    if (loop->spacetime_dimension == spacetime::Dimension::SpaceX) mapX *= loop->end;
+    else if (loop->spacetime_dimension == spacetime::Dimension::SpaceY) mapY *= loop->end;
+  }
+  assert(mapX * mapY == (int)utilized_instances);
+  stats_.mapX = (uint64_t)mapX;
+  stats_.mapY = (uint64_t)mapY;
+
+  source.reset();
+  sink.reset();
+
+  // Matrici traffico nei router e nei link
+  std::vector<std::vector<std::uint64_t>> routers_ingresses(meshY, std::vector<std::uint64_t>(meshX, 0));
+  std::vector<std::vector<std::uint64_t>> horizontal_links_ingresses(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
+  std::vector<std::vector<std::uint64_t>> vertical_links_ingresses(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
+
+  // Calcolo coordinate entry points
+  std::vector<std::pair<int, int>> memory_interfaces;
+  for (auto entry_point : specs_.memory_interfaces) {
+    memory_interfaces.push_back(std::make_pair<int, int>(entry_point / meshX, entry_point % meshX));
+  }
+
+  for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
+  {
+    auto pv = problem::Shape::DataSpaceID(pvi);
+  
+    for (unsigned i = 0; i < stats_.ingresses.at(pv).size(); i++)
+    {
+      if (stats_.ingresses[pv][i] > 0)
+      {
+        auto factor = i + 1;
+        std::uint64_t ingresses_per_pe = factor * stats_.ingresses[pv][i] / utilized_instances;
+
+        auto axis = spacetime::Dimension::Num;
+        if (factor > 1) axis = FindMulticastAxis(pv, factor, mapping_nest);
+
+        std::uint64_t last_distance, distance;
+        std::pair<int, int> nearest_entry_point;
+        for (int x = 0; x < mapX; x++)
+          for (int y = 0; y < mapY; y++)
+          {
+            // Trova Entry Point più vicino
+            last_distance = UINT64_MAX;
+            for (unsigned epi = 0; epi < memory_interfaces.size(); epi++)
+            {
+              distance = std::abs(memory_interfaces[epi].first - y) + std::abs(memory_interfaces[epi].second - x);
+              if (distance < last_distance)
+              {
+                last_distance = distance;
+                nearest_entry_point.first = memory_interfaces[epi].first;
+                nearest_entry_point.second = memory_interfaces[epi].second;
+              }
+            }
+
+            // UNICAST - Aggiungi traffico su tutti gli elementi di passaggio (Routing XY)
+            if (factor == 1) { 
+              // Routers sulla riga di partenza (X)
+              for (auto i = std::min<std::uint64_t>(x, nearest_entry_point.second); i <= std::max<std::uint64_t>(x, nearest_entry_point.second); i++)
+                routers_ingresses[nearest_entry_point.first][i] += ingresses_per_pe;
+              // Routers sulla colonna di arrivo (Y)
+              for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j <= std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                if (j != std::uint64_t(nearest_entry_point.first)) // Brutta cosa ma altrimenti contiamo l'incrocio due volte
+                  routers_ingresses[j][x] += ingresses_per_pe;
+              // Links sulla riga di partenza (X)
+              for (auto i = std::min<std::uint64_t>(x, nearest_entry_point.second); i < std::max<std::uint64_t>(x, nearest_entry_point.second); i++)
+                horizontal_links_ingresses[nearest_entry_point.first][i] += ingresses_per_pe;
+              // Links sulla colonna di arrivo (Y)
+              for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j < std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                vertical_links_ingresses[j][x] += ingresses_per_pe;
+            // MULTICAST
+            } else {
+              assert(axis == spacetime::Dimension::SpaceX || axis == spacetime::Dimension::SpaceY);
+              // MULTICAST ORIZZONTALE
+              if (axis == spacetime::Dimension::SpaceX) {
+                // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
+                if (nearest_entry_point.second > x) {
+                  routers_ingresses[y][x] += ingresses_per_pe;
+                  horizontal_links_ingresses[y][x] += ingresses_per_pe;
+                } else if (nearest_entry_point.second < x) {
+                  routers_ingresses[y][x] += ingresses_per_pe;
+                  horizontal_links_ingresses[y][x-1] += ingresses_per_pe;
+                // Se abbiamo raggiunto la colonna dell'entry point occupo router e link nella sua colonna
+                } else {
+                  for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j <= std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                    routers_ingresses[j][x] += ingresses_per_pe;
+                  for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j < std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                    vertical_links_ingresses[j][x] += ingresses_per_pe;
+                }
+              // MULTICAST VERTICALE
+              } else if (axis == spacetime::Dimension::SpaceY) {
+                // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
+                if (nearest_entry_point.first > y) {
+                  routers_ingresses[y][x] += ingresses_per_pe;
+                  vertical_links_ingresses[y][x] += ingresses_per_pe;
+                } else if (nearest_entry_point.first < y) {
+                  routers_ingresses[y][x] += ingresses_per_pe;
+                  vertical_links_ingresses[y-1][x] += ingresses_per_pe;
+                // Se abbiamo raggiunto la riga dell'entry point occupo router e link nella sua riga
+                } else {
+                  for (auto j = std::min<std::uint64_t>(x, nearest_entry_point.second); j <= std::max<std::uint64_t>(x, nearest_entry_point.second); j++)
+                    routers_ingresses[y][j] += ingresses_per_pe;
+                  for (auto j = std::min<std::uint64_t>(x, nearest_entry_point.second); j < std::max<std::uint64_t>(x, nearest_entry_point.second); j++)
+                    horizontal_links_ingresses[y][j] += ingresses_per_pe;
+                }
+              }
+            } 
+          }
+        break;
+      }
+    }
+  }
+
+  std::uint64_t i, j;
+  // Trovo elementi più trafficati
+  // Routers
+  std::uint64_t router_max_ingresses = 0;
+  for (i = 0; i < meshY; i++)
+    for (j = 0; j < meshX; j++)
+      if (routers_ingresses[i][j] > router_max_ingresses)
+        router_max_ingresses = routers_ingresses[i][j];
+
+  // Links
+  std::uint64_t link_max_ingresses = 0;
+  for (i = 0; i < meshY; i++)
+    for (j = 0; j < meshX - 1; j++)
+      if (horizontal_links_ingresses[i][j] > link_max_ingresses)
+        link_max_ingresses = horizontal_links_ingresses[i][j];
+  for (i = 0; i < meshY - 1; i++)
+    for (j = 0; j < meshX; j++)
+      if (vertical_links_ingresses[i][j] > link_max_ingresses)
+        link_max_ingresses = vertical_links_ingresses[i][j];
+      
+  // Router latency
+  double total_router_latency = router_max_ingresses * specs_.router_latency.Get();
+
+  // Link latency
+  double total_link_latency = link_max_ingresses * specs_.link_latency.Get();
+
+  // NoC Latency
+  stats_.cycles = std::max(total_router_latency, total_link_latency);
+  stats_.throttling = (double)compute_cycles / stats_.cycles;
+  stats_.meshX = meshX;
+  stats_.meshY = meshY;
+}
+
+bool LegacyNetwork::IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id)
+{
+  auto shape = problem::GetShape();
+  auto &proj1 = shape->Projections;
+
+  for(auto &proj2 : proj1.at(dataspace_id))
+    for (auto &proj3 : proj2) 
+      if (proj3.second == dimension_id) 
+        return true;
+
+  return false;
+}
+
+spacetime::Dimension LegacyNetwork::FindMulticastAxis(problem::Shape::DataSpaceID dataspace_id, unsigned multicast_factor, std::vector<loop::Descriptor> mapping_nest)
+{
+  for (auto loop = mapping_nest.rbegin(); loop != mapping_nest.rend(); loop++)
+    if (loop->spacetime_dimension != spacetime::Dimension::Time && loop->end == (int)multicast_factor && !IsDimensionProjectionOfDataspace(loop->dimension, dataspace_id) )
+      return loop->spacetime_dimension;
+  
+  return spacetime::Dimension::Num;
 }
 
 // We need the following method so that the connected buffer can
@@ -501,6 +685,31 @@ void LegacyNetwork::Print(std::ostream& out) const
   out << indent << indent << "Wire energy     : " << specs_.wire_energy << " pJ/b/mm" << std::endl;
 
   out << std::endl;
+
+  if (specs_.router_latency.IsSpecified() && specs_.router_latency.IsSpecified() && specs_.memory_interfaces.size() != 0) {
+    
+    out << indent << "PERFORMANCE" << std::endl;
+    out << indent << "-----" << std::endl;
+    out << indent << indent << "Cycles: " << stats_.cycles << "" << std::endl;
+    out << indent << indent << "Throttling: " << stats_.throttling << "" << std::endl;
+    out << indent << indent << "MeshX: " << stats_.meshX << indent << indent << "MapX: " << stats_.mapX << "" << std::endl;
+    out << indent << indent << "MeshY: " << stats_.meshY << indent << indent << "MapY: " << stats_.mapY << "" << std::endl;
+    
+    /*
+    out << indent << indent << "Entry Points: " << specs_.entry_points.size() << " -> ";
+    for (auto i: specs_.entry_points) out << i << ' ';
+    out << std::endl << indent << indent << "Router Traffic" << std::endl;
+    for (unsigned i = 0; i < stats_.routers_ingresses.size(); i++)
+    {
+        for (unsigned j = 0; j < stats_.routers_ingresses[i].size(); j++)
+        {
+            out << "\t\t" << stats_.routers_ingresses[i][j];
+        }
+        out << std::endl;
+    }
+    */
+    out << std::endl;
+  }
 
   out << indent << "STATS" << std::endl;
   out << indent << "-----" << std::endl;
