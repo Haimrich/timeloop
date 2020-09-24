@@ -1085,6 +1085,7 @@ void Topology::ComputeStats(bool eval_success)
       energy += level->Energy();
     }
 
+    std::uint64_t max_network_cycles = 0;
     for (auto& network: networks_)
     {
       //poan: Users might add a network to the arch but never connect/use it
@@ -1093,6 +1094,8 @@ void Topology::ComputeStats(bool eval_success)
       auto e = network.second->Energy();
       assert(e >= 0);
       energy += e;
+
+      max_network_cycles = std::max(max_network_cycles, network.second->Cycles());
     }
     
     stats_.energy = energy;
@@ -1103,7 +1106,7 @@ void Topology::ComputeStats(bool eval_success)
     {
       cycles = std::max(cycles, level->Cycles());
     }
-    stats_.cycles = cycles;
+    stats_.cycles = std::max(cycles, max_network_cycles);
 
     // Utilization.
     // FIXME.
