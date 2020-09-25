@@ -554,7 +554,6 @@ void LegacyNetwork::ComputePerformance()
                 vertical_links_ingresses[j][x] += ingresses_per_pe;
             // MULTICAST
             } else {
-              assert(axis == spacetime::Dimension::SpaceX || axis == spacetime::Dimension::SpaceY);
               // MULTICAST ORIZZONTALE
               if (axis == spacetime::Dimension::SpaceX) {
                 // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
@@ -586,6 +585,22 @@ void LegacyNetwork::ComputePerformance()
                     routers_ingresses[y][j] += ingresses_per_pe;
                   for (auto j = std::min<std::uint64_t>(x, nearest_entry_point.second); j < std::max<std::uint64_t>(x, nearest_entry_point.second); j++)
                     horizontal_links_ingresses[y][j] += ingresses_per_pe;
+                }
+              // BROADCAST (XY)
+              } else {
+                routers_ingresses[y][x] += ingresses_per_pe;
+                // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
+                if (nearest_entry_point.second > x) {
+                  horizontal_links_ingresses[y][x] += ingresses_per_pe;
+                } else if (nearest_entry_point.second < x) {
+                  horizontal_links_ingresses[y][x-1] += ingresses_per_pe;
+                // Se abbiamo raggiunto la colonna dell'entry point occupo router e link nella sua colonna
+                } else {
+                  if (nearest_entry_point.first > y) {
+                    vertical_links_ingresses[y][x] += ingresses_per_pe;
+                  } else if (nearest_entry_point.first < y) {
+                    vertical_links_ingresses[y-1][x] += ingresses_per_pe;
+                  }
                 }
               }
             } 
