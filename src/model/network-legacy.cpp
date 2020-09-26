@@ -126,7 +126,7 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
 
   // Latency specs
   std::string memory_interfaces_config;
-  if (network.lookupValue("memory_interfaces", memory_interfaces_config)) {
+  if (network.lookupValue("memory-interfaces", memory_interfaces_config)) {
       std::stringstream ss(memory_interfaces_config);
       std::uint64_t n;
 
@@ -200,7 +200,7 @@ EvalStatus LegacyNetwork::Evaluate(const tiling::CompoundTile& tile,
   {
     ComputeNetworkEnergy();
     ComputeSpatialReductionEnergy();
-    ComputePerformance();
+    ComputePerformance(tile);
   }
   return eval_status;
 }
@@ -454,7 +454,7 @@ void LegacyNetwork::ComputeSpatialReductionEnergy()
   }    
 }
 
-void LegacyNetwork::ComputePerformance()
+void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 {
   stats_.cycles = 0;
 
@@ -465,7 +465,6 @@ void LegacyNetwork::ComputePerformance()
   if (!source || !sink) return;
   
   std::shared_ptr<BufferLevel> buffer_sink = std::dynamic_pointer_cast<BufferLevel>(sink);
-  auto mapping_nest = buffer_sink->GetSubNest();
   auto read_buffer_specs = buffer_sink->GetSpecs();
   
   std::shared_ptr<BufferLevel> buffer_source = std::dynamic_pointer_cast<BufferLevel>(source);
@@ -477,6 +476,7 @@ void LegacyNetwork::ComputePerformance()
   std::uint64_t meshY = instances / meshX;
 
   std::uint64_t compute_cycles = buffer_source->Cycles(); // FIXME
+  auto mapping_nest = tile[0].subnest;
 
   if (!std::all_of(specs_.memory_interfaces.begin(), specs_.memory_interfaces.end(), [&](std::uint64_t p) { return p < instances; })) return; // FIXME
 
@@ -501,8 +501,8 @@ void LegacyNetwork::ComputePerformance()
 
   // Calcolo coordinate entry points
   std::vector<std::pair<int, int>> memory_interfaces;
-  for (auto entry_point : specs_.memory_interfaces) {
-    memory_interfaces.push_back(std::make_pair<int, int>(entry_point / meshX, entry_point % meshX));
+  for (auto mem_interface : specs_.memory_interfaces) {
+    memory_interfaces.push_back(std::make_pair<int, int>(mem_interface / meshX, mem_interface % meshX));
   }
 
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
@@ -520,7 +520,7 @@ void LegacyNetwork::ComputePerformance()
         if (factor > 1) axis = FindMulticastAxis(pv, factor, mapping_nest);
 
         std::uint64_t last_distance, distance;
-        std::pair<int, int> nearest_entry_point;
+        std::pair<int, int> nearest_mem_interface;
         for (int x = 0; x < mapX; x++)
           for (int y = 0; y < mapY; y++)
           {
@@ -532,73 +532,73 @@ void LegacyNetwork::ComputePerformance()
               if (distance < last_distance)
               {
                 last_distance = distance;
-                nearest_entry_point.first = memory_interfaces[epi].first;
-                nearest_entry_point.second = memory_interfaces[epi].second;
+                nearest_mem_interface.first = memory_interfaces[epi].first;
+                nearest_mem_interface.second = memory_interfaces[epi].second;
               }
             }
 
             // UNICAST - Aggiungi traffico su tutti gli elementi di passaggio (Routing XY)
             if (factor == 1) { 
               // Routers sulla riga di partenza (X)
-              for (auto i = std::min<std::uint64_t>(x, nearest_entry_point.second); i <= std::max<std::uint64_t>(x, nearest_entry_point.second); i++)
-                routers_ingresses[nearest_entry_point.first][i] += ingresses_per_pe;
+              for (auto i = std::min<std::uint64_t>(x, nearest_mem_interface.second); i <= std::max<std::uint64_t>(x, nearest_mem_interface.second); i++)
+                routers_ingresses[nearest_mem_interface.first][i] += ingresses_per_pe;
               // Routers sulla colonna di arrivo (Y)
-              for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j <= std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
-                if (j != std::uint64_t(nearest_entry_point.first)) // Brutta cosa ma altrimenti contiamo l'incrocio due volte
+              for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j <= std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
+                if (j != std::uint64_t(nearest_mem_interface.first)) // Brutta cosa ma altrimenti contiamo l'incrocio due volte
                   routers_ingresses[j][x] += ingresses_per_pe;
               // Links sulla riga di partenza (X)
-              for (auto i = std::min<std::uint64_t>(x, nearest_entry_point.second); i < std::max<std::uint64_t>(x, nearest_entry_point.second); i++)
-                horizontal_links_ingresses[nearest_entry_point.first][i] += ingresses_per_pe;
+              for (auto i = std::min<std::uint64_t>(x, nearest_mem_interface.second); i < std::max<std::uint64_t>(x, nearest_mem_interface.second); i++)
+                horizontal_links_ingresses[nearest_mem_interface.first][i] += ingresses_per_pe;
               // Links sulla colonna di arrivo (Y)
-              for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j < std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+              for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j < std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
                 vertical_links_ingresses[j][x] += ingresses_per_pe;
             // MULTICAST
             } else {
               // MULTICAST ORIZZONTALE
               if (axis == spacetime::Dimension::SpaceX) {
                 // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
-                if (nearest_entry_point.second > x) {
+                if (nearest_mem_interface.second > x) {
                   routers_ingresses[y][x] += ingresses_per_pe;
                   horizontal_links_ingresses[y][x] += ingresses_per_pe;
-                } else if (nearest_entry_point.second < x) {
+                } else if (nearest_mem_interface.second < x) {
                   routers_ingresses[y][x] += ingresses_per_pe;
                   horizontal_links_ingresses[y][x-1] += ingresses_per_pe;
                 // Se abbiamo raggiunto la colonna dell'entry point occupo router e link nella sua colonna
                 } else {
-                  for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j <= std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                  for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j <= std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
                     routers_ingresses[j][x] += ingresses_per_pe;
-                  for (auto j = std::min<std::uint64_t>(y, nearest_entry_point.first); j < std::max<std::uint64_t>(y, nearest_entry_point.first); j++)
+                  for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j < std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
                     vertical_links_ingresses[j][x] += ingresses_per_pe;
                 }
               // MULTICAST VERTICALE
               } else if (axis == spacetime::Dimension::SpaceY) {
                 // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
-                if (nearest_entry_point.first > y) {
+                if (nearest_mem_interface.first > y) {
                   routers_ingresses[y][x] += ingresses_per_pe;
                   vertical_links_ingresses[y][x] += ingresses_per_pe;
-                } else if (nearest_entry_point.first < y) {
+                } else if (nearest_mem_interface.first < y) {
                   routers_ingresses[y][x] += ingresses_per_pe;
                   vertical_links_ingresses[y-1][x] += ingresses_per_pe;
                 // Se abbiamo raggiunto la riga dell'entry point occupo router e link nella sua riga
                 } else {
-                  for (auto j = std::min<std::uint64_t>(x, nearest_entry_point.second); j <= std::max<std::uint64_t>(x, nearest_entry_point.second); j++)
+                  for (auto j = std::min<std::uint64_t>(x, nearest_mem_interface.second); j <= std::max<std::uint64_t>(x, nearest_mem_interface.second); j++)
                     routers_ingresses[y][j] += ingresses_per_pe;
-                  for (auto j = std::min<std::uint64_t>(x, nearest_entry_point.second); j < std::max<std::uint64_t>(x, nearest_entry_point.second); j++)
+                  for (auto j = std::min<std::uint64_t>(x, nearest_mem_interface.second); j < std::max<std::uint64_t>(x, nearest_mem_interface.second); j++)
                     horizontal_links_ingresses[y][j] += ingresses_per_pe;
                 }
               // BROADCAST (XY)
               } else {
                 routers_ingresses[y][x] += ingresses_per_pe;
                 // Occupa il router e il link adiacente nella direzione orizzontale dell'entry point più vicino
-                if (nearest_entry_point.second > x) {
+                if (nearest_mem_interface.second > x) {
                   horizontal_links_ingresses[y][x] += ingresses_per_pe;
-                } else if (nearest_entry_point.second < x) {
+                } else if (nearest_mem_interface.second < x) {
                   horizontal_links_ingresses[y][x-1] += ingresses_per_pe;
                 // Se abbiamo raggiunto la colonna dell'entry point occupo router e link nella sua colonna
                 } else {
-                  if (nearest_entry_point.first > y) {
+                  if (nearest_mem_interface.first > y) {
                     vertical_links_ingresses[y][x] += ingresses_per_pe;
-                  } else if (nearest_entry_point.first < y) {
+                  } else if (nearest_mem_interface.first < y) {
                     vertical_links_ingresses[y-1][x] += ingresses_per_pe;
                   }
                 }
@@ -711,8 +711,8 @@ void LegacyNetwork::Print(std::ostream& out) const
     out << indent << indent << "MeshY: " << stats_.meshY << indent << indent << "MapY: " << stats_.mapY << "" << std::endl;
     
     /*
-    out << indent << indent << "Entry Points: " << specs_.entry_points.size() << " -> ";
-    for (auto i: specs_.entry_points) out << i << ' ';
+    out << indent << indent << "Entry Points: " << specs_.memory_interfaces.size() << " -> ";
+    for (auto i: specs_.memory_interfaces) out << i << ' ';
     out << std::endl << indent << indent << "Router Traffic" << std::endl;
     for (unsigned i = 0; i < stats_.routers_ingresses.size(); i++)
     {
