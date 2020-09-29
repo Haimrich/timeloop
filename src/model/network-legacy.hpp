@@ -206,7 +206,6 @@ class LegacyNetwork : public Network
 
   void ComputePerformance(const tiling::CompoundTile& tile);
   bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
-  spacetime::Dimension FindMulticastAxis(problem::Shape::DataSpaceID dataspace_id, unsigned multicast_factor, std::vector<loop::Descriptor> mapping_nest);
   std::uint64_t Cycles() const;
 
   std::uint64_t WordBits() const;
