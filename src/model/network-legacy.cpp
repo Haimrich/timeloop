@@ -485,11 +485,12 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   // MAPPING SIZE
   stats_.mapX = 1;
   stats_.mapY = 1;
-  for (auto loop = mapping_nest.rbegin(); loop != mapping_nest.rend(); loop++)
+  for (auto loop = mapping_nest.rbegin(); loop != mapping_nest.rend(); loop++) {
     if (loop->spacetime_dimension == spacetime::Dimension::SpaceX) 
       stats_.mapX *= loop->end;
     else if (loop->spacetime_dimension == spacetime::Dimension::SpaceY) 
       stats_.mapY *= loop->end;
+  }
   assert(stats_.mapX * stats_.mapY == utilized_instances);
 
 
@@ -580,16 +581,16 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
               }
               else
               {
-                for (int i = 1; i < loop->end; ++i)
+                int n_groups = MGS.size();
+                for (int ng = 0; ng < n_groups; ++ng)
                 {
-                  int n_groups = MGS.size();
-                  for (int ng = 0; ng < n_groups; ++ng)
+                  int gs = MGS[ng].size();
+                  for (int i = 1; i < loop->end; ++i)
                   {
-                    int gs = MGS[ng].size();
                     MGS.push_back({});
                     for (int s : MGS[ng])
                     {
-                      int v = s + i * MGS.size() * gs;
+                      int v = s + i * n_groups * gs;
                       MGS.back().push_back(v);
                     }
                   }
@@ -606,11 +607,11 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
               }
               else
               {
-                for (int i = 1; i < loop->end; ++i)
+                for (auto &group : MGS)
                 {
-                  for (auto &group : MGS)
+                  int gs = group.size();
+                  for (int i = 1; i < loop->end; ++i)
                   {
-                    int gs = group.size();
                     for (int e = 0; e < gs; ++e)
                     {
                       int v = group[e] + i * MGS.size() * gs;
@@ -639,9 +640,8 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                       nearest_mem_interface = memory_interfaces[epi];
                     }
                   }
-                  
 
-                  if (y == nearest_mem_interface.first && x == nearest_mem_interface.first) {
+                  if (y == nearest_mem_interface.first && x == nearest_mem_interface.second) {
                     routers_ingresses[y][x] += ingresses_per_pe;
                     continue;
                   }
@@ -667,27 +667,24 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                   }
 
                   // Horizontal 
-                  if (x != nearest_mem_interface.second) {
-                    bool right = x < nearest_mem_interface.second;
-                    int j = x; 
-                    do
-                    {
-                      routers_ingresses[nearest_mem_interface.first][j] += ingresses_per_pe;
-                      horizontal_links_ingresses[nearest_mem_interface.first][right ? j : j-1] += ingresses_per_pe;
+                  bool right = x < nearest_mem_interface.second;
+                  int j = x; 
+                  do
+                  {
+                    routers_ingresses[nearest_mem_interface.first][j] += ingresses_per_pe;
+                    if (j == nearest_mem_interface.second) break;
+                    horizontal_links_ingresses[nearest_mem_interface.first][right ? j : j-1] += ingresses_per_pe;
 
-                      right ? j++ : j--;
+                    right ? j++ : j--;
 
-                      friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
-
-                    } while (!friend_found && j != nearest_mem_interface.second);
-                  }
+                    friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
+                    
+                  } while (!friend_found);
 
                 }
         }
-
       }
     }
-
   }
 
   std::uint64_t i, j;
