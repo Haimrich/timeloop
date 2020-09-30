@@ -623,6 +623,11 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
             }
             #undef MGS
           }
+          if (multicast_groups[spacetime::Dimension::SpaceX].size() == 0)  
+            multicast_groups[spacetime::Dimension::SpaceX].push_back({{0}});      
+          if (multicast_groups[spacetime::Dimension::SpaceY].size() == 0)  
+            multicast_groups[spacetime::Dimension::SpaceY].push_back({{0}});    
+            
 
           for (auto &yg : multicast_groups[spacetime::Dimension::SpaceY])
             for (auto &xg : multicast_groups[spacetime::Dimension::SpaceX])
