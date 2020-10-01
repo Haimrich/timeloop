@@ -550,16 +550,16 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
         else if (factor == utilized_instances) 
         {
           // BROADCAST
-          for (int i = 0; i < stats_.mapX; i++)
-            for (int j = 0; j < stats_.mapY; j++)
+          for (unsigned i = 0; i < stats_.mapX; i++)
+            for (unsigned j = 0; j < stats_.mapY; j++)
               routers_ingresses[j][i] += ingresses_per_pe;
           
-          for (int i = 0; i < stats_.mapX - 1; i++)
-            for (int j = 0; j < stats_.mapY; j++)
+          for (unsigned i = 0; i < stats_.mapX - 1; i++)
+            for (unsigned j = 0; j < stats_.mapY; j++)
               horizontal_links_ingresses[j][i] += ingresses_per_pe;
 
-          for (int i = 0; i < stats_.mapX; i++)
-            for (int j = 0; j < stats_.mapY - 1; j++)
+          for (unsigned i = 0; i < stats_.mapX; i++)
+            for (unsigned j = 0; j < stats_.mapY - 1; j++)
               vertical_links_ingresses[j][i] += ingresses_per_pe;
         } 
         else 
