@@ -137,9 +137,9 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
   if (network.lookupValue("router-latency", router_latency)) {
       specs.router_latency = router_latency;
   }
-  double link_latency;
-  if (network.lookupValue("link-latency", link_latency)) {
-      specs.link_latency = link_latency;
+  double bandwidth;
+  if (network.lookupValue("bandwidth", bandwidth)) {
+      specs.bandwidth = bandwidth;
   }
 
   return specs;
@@ -458,7 +458,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 {
   stats_.cycles = 0;
 
-  if (!specs_.router_latency.IsSpecified() || !specs_.link_latency.IsSpecified() || !specs_.memory_interfaces.size() ) return;
+  if (!specs_.router_latency.IsSpecified() || !specs_.bandwidth.IsSpecified() || !specs_.memory_interfaces.size() ) return;
 
   auto source = source_.lock();
   auto sink = sink_.lock();
@@ -493,14 +493,24 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   }
   assert(stats_.mapX * stats_.mapY == utilized_instances);
 
-
-  // ROUTER LINK TRAFFIC
-  std::vector<std::vector<std::uint64_t>> routers_ingresses(meshY, std::vector<std::uint64_t>(meshX, 0));
-  std::vector<std::vector<std::uint64_t>> horizontal_links_ingresses(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
-  std::vector<std::vector<std::uint64_t>> vertical_links_ingresses(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
   // MEMORY INTERFACES COORDINATES
   std::vector<std::pair<int, int>> memory_interfaces;
-  for (auto mi : specs_.memory_interfaces) memory_interfaces.push_back(std::make_pair<int, int>(mi / meshX, mi % meshX));
+  for (auto mi : specs_.memory_interfaces) 
+    memory_interfaces.push_back(std::make_pair<int, int>(mi / meshX, mi % meshX));
+
+  // NEAREST MEMORY INTERFACE PER PE
+  std::vector<std::vector<std::unsigned>> nearest_memory_interfaces(mapY, std::vector<std::unsigned>(mapX, 0));
+  for (int y = 0; y < (int)stats_.mapY; y++)
+    for (int x = 0; x < (int)stats._mapX; x++)
+      nearest_memory_interfaces[y][x] = GetNearestMemoryInterface(y, x, memory_interfaces);
+
+  // LINK TRAFFIC
+  std::vector<std::vector<std::uint64_t>> left_links_traffic(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
+  std::vector<std::vector<std::uint64_t>> right_links_traffic(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
+  std::vector<std::vector<std::uint64_t>> up_links_traffic(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
+  std::vector<std::vector<std::uint64_t>> down_links_traffic(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
+
+  double total_ingresses_per_pe = 0;
 
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
@@ -510,224 +520,201 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
       {
         auto factor = f + 1;
         std::uint64_t ingresses_per_pe = factor * stats_.ingresses[pv][f] / utilized_instances;
+        total_ingresses_per_pe += ingresses_per_pe;
 
-        if (factor == 1) {
-            // UNICAST
-            std::uint64_t last_distance, distance;
-            std::pair<int, int> nearest_mem_interface;
-            for (int x = 0; x < (int)stats_.mapX; x++)
-            {
-              for (int y = 0; y < (int)stats_.mapY; y++)
+        // COMMUNICATION TOPOLOGY
+        std::map<spacetime::Dimension, std::vector<std::vector<int>>> multicast_groups;
+        DetermineCommunicationTopology(multicast_groups, mapping_nest);
+
+        // LINK TRAFFIC
+        for (auto &yg : multicast_groups[spacetime::Dimension::SpaceY])
+          for (auto &xg : multicast_groups[spacetime::Dimension::SpaceX])
+            for (int &y : yg)
+              for (int &x : xg)
               {
-                // Trova Entry Point più vicino
-                last_distance = UINT64_MAX;
-                for (unsigned epi = 0; epi < memory_interfaces.size(); epi++)
-                {
-                  distance = std::abs(memory_interfaces[epi].first - y) + std::abs(memory_interfaces[epi].second - x);
-                  if (distance < last_distance)
-                  {
-                    last_distance = distance;
-                    nearest_mem_interface = memory_interfaces[epi];
-                  }
-                }
+                std::pair<int,int> nearest_mem_interface = memory_interfaces[nearest_memory_interfaces[y][x]];
 
-                // Routers sulla riga di partenza (X)
-                for (auto i = std::min<std::uint64_t>(x, nearest_mem_interface.second); i <= std::max<std::uint64_t>(x, nearest_mem_interface.second); i++)
-                  routers_ingresses[nearest_mem_interface.first][i] += ingresses_per_pe;
-                // Routers sulla colonna di arrivo (Y)
-                for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j <= std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
-                  if (j != std::uint64_t(nearest_mem_interface.first)) // Brutta cosa ma altrimenti contiamo l'incrocio due volte
-                    routers_ingresses[j][x] += ingresses_per_pe;
-                // Links sulla riga di partenza (X)
-                for (auto i = std::min<std::uint64_t>(x, nearest_mem_interface.second); i < std::max<std::uint64_t>(x, nearest_mem_interface.second); i++)
-                  horizontal_links_ingresses[nearest_mem_interface.first][i] += ingresses_per_pe;
-                // Links sulla colonna di arrivo (Y)
-                for (auto j = std::min<std::uint64_t>(y, nearest_mem_interface.first); j < std::max<std::uint64_t>(y, nearest_mem_interface.first); j++)
-                  vertical_links_ingresses[j][x] += ingresses_per_pe;
-              }
-            }
-        } 
-        else if (factor == utilized_instances) 
-        {
-          // BROADCAST
-          for (unsigned i = 0; i < stats_.mapX; i++)
-            for (unsigned j = 0; j < stats_.mapY; j++)
-              routers_ingresses[j][i] += ingresses_per_pe;
-          
-          for (unsigned i = 0; i < stats_.mapX - 1; i++)
-            for (unsigned j = 0; j < stats_.mapY; j++)
-              horizontal_links_ingresses[j][i] += ingresses_per_pe;
+                bool friend_found = false;
 
-          for (unsigned i = 0; i < stats_.mapX; i++)
-            for (unsigned j = 0; j < stats_.mapY - 1; j++)
-              vertical_links_ingresses[j][i] += ingresses_per_pe;
-        } 
-        else 
-        {
-          // MULTICAST
-          std::uint64_t last_distance, distance;
-          std::pair<int, int> nearest_mem_interface;
-          // MULTICAST GROUPS
-          std::map<spacetime::Dimension, std::vector<std::vector<int>>> multicast_groups;
-          multicast_groups[spacetime::Dimension::SpaceX] = {};
-          multicast_groups[spacetime::Dimension::SpaceY] = {};
-          // CALCULATING MULTICAST GROUPS
-          for (auto loop = mapping_nest.begin(); loop != mapping_nest.end(); ++loop) 
-          {
-            if (!loop::IsSpatial(loop->spacetime_dimension)) continue;
-
-            #define MGS multicast_groups[loop->spacetime_dimension]
-            if (IsDimensionProjectionOfDataspace(loop->dimension, pv))
-            {
-              if (MGS.empty())
-              {
-                for (int i = 0; i < loop->end; ++i)
-                  MGS.push_back({i});
-              }
-              else
-              {
-                int n_groups = MGS.size();
-                for (int ng = 0; ng < n_groups; ++ng)
-                {
-                  int gs = MGS[ng].size();
-                  for (int i = 1; i < loop->end; ++i)
-                  {
-                    MGS.push_back({});
-                    for (int s : MGS[ng])
-                    {
-                      int v = s + i * n_groups * gs;
-                      MGS.back().push_back(v);
-                    }
-                  }
-                }
-              }
-            }
-            else
-            {
-              if (MGS.empty())
-              {
-                MGS.push_back({});
-                for (int i = 0; i < loop->end; ++i)
-                  MGS[0].push_back(i);
-              }
-              else
-              {
-                for (auto &group : MGS)
-                {
-                  int gs = group.size();
-                  for (int i = 1; i < loop->end; ++i)
-                  {
-                    for (int e = 0; e < gs; ++e)
-                    {
-                      int v = group[e] + i * MGS.size() * gs;
-                      group.push_back(v);
-                    }
-                  }
-                }
-              }
-            }
-            #undef MGS
-          }
-          if (multicast_groups[spacetime::Dimension::SpaceX].size() == 0)  
-            multicast_groups[spacetime::Dimension::SpaceX].push_back({{0}});      
-          if (multicast_groups[spacetime::Dimension::SpaceY].size() == 0)  
-            multicast_groups[spacetime::Dimension::SpaceY].push_back({{0}});    
-            
-
-          for (auto &yg : multicast_groups[spacetime::Dimension::SpaceY])
-            for (auto &xg : multicast_groups[spacetime::Dimension::SpaceX])
-              for (int &y : yg)
-                for (int &x : xg)
-                {
-                  // Nearest Memory Interface
-                  last_distance = UINT64_MAX;
-                  for (unsigned epi = 0; epi < memory_interfaces.size(); epi++)
-                  {
-                    distance = std::abs(memory_interfaces[epi].first - y) + std::abs(memory_interfaces[epi].second - x);
-                    if (distance < last_distance)
-                    {
-                      last_distance = distance;
-                      nearest_mem_interface = memory_interfaces[epi];
-                    }
-                  }
-
-                  if (y == nearest_mem_interface.first && x == nearest_mem_interface.second) {
-                    routers_ingresses[y][x] += ingresses_per_pe;
-                    continue;
-                  }
-
-                  bool friend_found = false;
-
-                  // Vertical 
-                  if (y != nearest_mem_interface.first) {
-                    bool down = y < nearest_mem_interface.first;
-                    int i = y; 
-                    do
-                    {
-                      routers_ingresses[i][x] += ingresses_per_pe;
-                      vertical_links_ingresses[down ? i : i-1][x] += ingresses_per_pe;
-
-                      down ? i++ : i--;
-
-                      friend_found = std::find(xg.begin(), xg.end(), x) != xg.end() && std::find(yg.begin(), yg.end(), i) != yg.end();
-
-                    } while (!friend_found && i != nearest_mem_interface.first);
-
-                    if (friend_found) continue;
-                  }
-
-                  // Horizontal 
-                  bool right = x < nearest_mem_interface.second;
-                  int j = x; 
+                // Vertical 
+                if (y != nearest_mem_interface.first) {
+                  bool down = y < nearest_mem_interface.first;
+                  int i = y; 
                   do
                   {
-                    routers_ingresses[nearest_mem_interface.first][j] += ingresses_per_pe;
-                    if (j == nearest_mem_interface.second) break;
-                    horizontal_links_ingresses[nearest_mem_interface.first][right ? j : j-1] += ingresses_per_pe;
+                    if (down) {
+                      down_links_traffic[i][x] += ingresses_per_pe;
+                      i++
+                    } else {
+                      up_links_traffic[i-1][x] += ingresses_per_pe;
+                      i--;
+                    }
 
-                    right ? j++ : j--;
+                    friend_found = std::find(xg.begin(), xg.end(), x) != xg.end() && std::find(yg.begin(), yg.end(), i) != yg.end();
 
-                    friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
-                    
-                  } while (!friend_found);
+                  } while (!friend_found && i != nearest_mem_interface.first);
 
+                  if (friend_found) continue;
                 }
-        }
+
+                // Horizontal 
+                bool right = x < nearest_mem_interface.second;
+                int j = x; 
+                while (!friend_found && j != nearest_mem_interface.second)
+                {
+                  if (right) {
+                    right_links_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
+                    j++;
+                  } else {
+                    left_links_traffic[nearest_mem_interface.first][j-1] += ingresses_per_pe;
+                    j--
+                  }
+
+                  friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
+                }
+
+              }
       }
     }
   }
 
-  std::uint64_t i, j;
-  // Trovo elementi più trafficati
-  // Routers
-  std::uint64_t router_max_ingresses = 0;
-  for (i = 0; i < meshY; i++)
-    for (j = 0; j < meshX; j++)
-      if (routers_ingresses[i][j] > router_max_ingresses)
-        router_max_ingresses = routers_ingresses[i][j];
+  double latency = 0;
 
-  // Links
-  std::uint64_t link_max_ingresses = 0;
-  for (i = 0; i < meshY; i++)
-    for (j = 0; j < meshX - 1; j++)
-      if (horizontal_links_ingresses[i][j] > link_max_ingresses)
-        link_max_ingresses = horizontal_links_ingresses[i][j];
-  for (i = 0; i < meshY - 1; i++)
-    for (j = 0; j < meshX; j++)
-      if (vertical_links_ingresses[i][j] > link_max_ingresses)
-        link_max_ingresses = vertical_links_ingresses[i][j];
-      
-  // Router latency
-  double total_router_latency = router_max_ingresses * specs_.router_latency.Get();
+  for (int y = 0; y < (int)stats_.mapY; y++)
+    for (int x = 0; x < (int)stats._mapX; x++) {
+      std::pair<int,int> nearest_mem_interface = memory_interfaces[nearest_memory_interfaces[y][x]];
 
-  // Link latency
-  double total_link_latency = link_max_ingresses * specs_.link_latency.Get();
+      double bottleneck_factor = 1;
+      double new_bottleneck_factor = 1;
 
+      if (y != nearest_mem_interface.first) {
+        bool down = y < nearest_mem_interface.first;
+        int i = y; 
+        do
+        {
+          if (down) {
+            new_bottleneck_factor = total_ingresses_per_pe / down_links_traffic[i][x];
+            i++
+          } else {
+            new_bottleneck_factor = total_ingresses_per_pe / up_links_traffic[i-1][x];
+            i--;
+          }
+
+          bottleneck_factor = std::min(new_bottleneck_factor, bottleneck_factor);
+
+        } while (i != nearest_mem_interface.first);
+      }
+
+      bool right = x < nearest_mem_interface.second;
+      int j = x; 
+      while (j != nearest_mem_interface.second)
+      {
+        if (right) {
+          new_bottleneck_factor = total_ingresses_per_pe / right_links_traffic[nearest_mem_interface.first][j];
+          j++;
+        } else {
+          new_bottleneck_factor = total_ingresses_per_pe / left_links_traffic[nearest_mem_interface.first][j-1];
+          j--
+        }
+
+        bottleneck_factor = std::min(new_bottleneck_factor, bottleneck_factor);
+      }
+
+      double hops = std::abs(y - nearest_mem_interface.first) + std::abs(nearest_mem_interface.second - x);
+      double new_latency = hops * specs_.router_latency.Get() + ingresses_per_pe / (bottleneck_factor * specs_.bandwidth.Get());
+      latency = std::max(latency, new_latency);
+    }
+  
   // NoC Latency
-  stats_.cycles = std::max(total_router_latency, total_link_latency);
+  stats_.cycles = ceil(latency);
   stats_.throttling = (double)compute_cycles / stats_.cycles;
   stats_.meshX = meshX;
   stats_.meshY = meshY;
+}
+
+unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<pair<int,int>>& memory_interfaces) {
+  std::uint64_t last_distance, distance;
+  unsigned nearest_id = 0;
+
+  last_distance = UINT64_MAX;
+  for (unsigned epi = 0; epi < memory_interfaces.size(); epi++)
+  {
+    distance = std::abs(memory_interfaces[epi].first - y) + std::abs(memory_interfaces[epi].second - x);
+    if (distance < last_distance)
+    {
+      last_distance = distance;
+      nearest_id = epi;
+    }
+  }
+
+  return nearest_id;
+}
+
+void LegacyNetwork::DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<Loop::descriptor>& mapping_nest) {
+  multicast_groups[spacetime::Dimension::SpaceX] = {};
+  multicast_groups[spacetime::Dimension::SpaceY] = {};
+  // CALCULATING MULTICAST GROUPS
+  for (auto loop = mapping_nest.begin(); loop != mapping_nest.end(); ++loop) 
+  {
+    if (!loop::IsSpatial(loop->spacetime_dimension)) continue;
+
+    #define MGS multicast_groups[loop->spacetime_dimension]
+    if (IsDimensionProjectionOfDataspace(loop->dimension, pv))
+    {
+      if (MGS.empty())
+      {
+        for (int i = 0; i < loop->end; ++i)
+          MGS.push_back({i});
+      }
+      else
+      {
+        int n_groups = MGS.size();
+        for (int ng = 0; ng < n_groups; ++ng)
+        {
+          int gs = MGS[ng].size();
+          for (int i = 1; i < loop->end; ++i)
+          {
+            MGS.push_back({});
+            for (int s : MGS[ng])
+            {
+              int v = s + i * n_groups * gs;
+              MGS.back().push_back(v);
+            }
+          }
+        }
+      }
+    }
+    else
+    {
+      if (MGS.empty())
+      {
+        MGS.push_back({});
+        for (int i = 0; i < loop->end; ++i)
+          MGS[0].push_back(i);
+      }
+      else
+      {
+        for (auto &group : MGS)
+        {
+          int gs = group.size();
+          for (int i = 1; i < loop->end; ++i)
+          {
+            for (int e = 0; e < gs; ++e)
+            {
+              int v = group[e] + i * MGS.size() * gs;
+              group.push_back(v);
+            }
+          }
+        }
+      }
+    }
+    #undef MGS
+  }
+
+  if (multicast_groups[spacetime::Dimension::SpaceX].size() == 0)  
+    multicast_groups[spacetime::Dimension::SpaceX].push_back({{0}});      
+  if (multicast_groups[spacetime::Dimension::SpaceY].size() == 0)  
+    multicast_groups[spacetime::Dimension::SpaceY].push_back({{0}});  
 }
 
 bool LegacyNetwork::IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id)

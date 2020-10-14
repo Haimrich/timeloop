@@ -65,8 +65,8 @@ class LegacyNetwork : public Network
 
     // Latency attributes
     std::vector<std::uint64_t> memory_interfaces;
-    Attribute<double> link_latency;   // Link Latency per Element. Ex. 1 Cycles / 4 Elements link-width = 0.25
-    Attribute<double> router_latency; // Router Latency per Element. Ex. 3 Cycles / 4 Elements per op. = 0.75
+    Attribute<double> bandwidth;      // Bandwidth in words/cycle
+    Attribute<double> router_latency; // Router Latency in cycles
 
     const std::string Type() const override { return type; }
 
@@ -205,6 +205,8 @@ class LegacyNetwork : public Network
   void ComputeSpatialReductionEnergy();
 
   void ComputePerformance(const tiling::CompoundTile& tile);
+  unsigned GetNearestMemoryInterface(int y, int x, std::vector<pair<int,int>>& memory_interfaces);
+  void DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<Loop::descriptor>& mapping_nest);
   bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
   std::uint64_t Cycles() const;
 
