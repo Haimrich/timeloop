@@ -205,8 +205,8 @@ class LegacyNetwork : public Network
   void ComputeSpatialReductionEnergy();
 
   void ComputePerformance(const tiling::CompoundTile& tile);
-  unsigned GetNearestMemoryInterface(int y, int x, std::vector<pair<int,int>>& memory_interfaces);
-  void DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<Loop::descriptor>& mapping_nest);
+  unsigned GetNearestMemoryInterface(int y, int x, std::vector<std::pair<int,int>>& memory_interfaces);
+  void DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<loop::Descriptor>& mapping_nest, problem::Shape::DataSpaceID pv);
   bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
   std::uint64_t Cycles() const;
 

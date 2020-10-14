@@ -499,9 +499,9 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
     memory_interfaces.push_back(std::make_pair<int, int>(mi / meshX, mi % meshX));
 
   // NEAREST MEMORY INTERFACE PER PE
-  std::vector<std::vector<std::unsigned>> nearest_memory_interfaces(mapY, std::vector<std::unsigned>(mapX, 0));
+  std::vector<std::vector<unsigned>> nearest_memory_interfaces(stats_.mapY, std::vector<unsigned>(stats_.mapX, 0));
   for (int y = 0; y < (int)stats_.mapY; y++)
-    for (int x = 0; x < (int)stats._mapX; x++)
+    for (int x = 0; x < (int)stats_.mapX; x++)
       nearest_memory_interfaces[y][x] = GetNearestMemoryInterface(y, x, memory_interfaces);
 
   // LINK TRAFFIC
@@ -524,7 +524,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 
         // COMMUNICATION TOPOLOGY
         std::map<spacetime::Dimension, std::vector<std::vector<int>>> multicast_groups;
-        DetermineCommunicationTopology(multicast_groups, mapping_nest);
+        DetermineCommunicationTopology(multicast_groups, mapping_nest, pv);
 
         // LINK TRAFFIC
         for (auto &yg : multicast_groups[spacetime::Dimension::SpaceY])
@@ -544,7 +544,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                   {
                     if (down) {
                       down_links_traffic[i][x] += ingresses_per_pe;
-                      i++
+                      i++;
                     } else {
                       up_links_traffic[i-1][x] += ingresses_per_pe;
                       i--;
@@ -567,7 +567,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                     j++;
                   } else {
                     left_links_traffic[nearest_mem_interface.first][j-1] += ingresses_per_pe;
-                    j--
+                    j--;
                   }
 
                   friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
@@ -581,7 +581,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   double latency = 0;
 
   for (int y = 0; y < (int)stats_.mapY; y++)
-    for (int x = 0; x < (int)stats._mapX; x++) {
+    for (int x = 0; x < (int)stats_.mapX; x++) {
       std::pair<int,int> nearest_mem_interface = memory_interfaces[nearest_memory_interfaces[y][x]];
 
       double bottleneck_factor = 1;
@@ -594,7 +594,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
         {
           if (down) {
             new_bottleneck_factor = total_ingresses_per_pe / down_links_traffic[i][x];
-            i++
+            i++;
           } else {
             new_bottleneck_factor = total_ingresses_per_pe / up_links_traffic[i-1][x];
             i--;
@@ -614,14 +614,14 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
           j++;
         } else {
           new_bottleneck_factor = total_ingresses_per_pe / left_links_traffic[nearest_mem_interface.first][j-1];
-          j--
+          j--;
         }
 
         bottleneck_factor = std::min(new_bottleneck_factor, bottleneck_factor);
       }
 
       double hops = std::abs(y - nearest_mem_interface.first) + std::abs(nearest_mem_interface.second - x);
-      double new_latency = hops * specs_.router_latency.Get() + ingresses_per_pe / (bottleneck_factor * specs_.bandwidth.Get());
+      double new_latency = hops * specs_.router_latency.Get() + total_ingresses_per_pe / (bottleneck_factor * specs_.bandwidth.Get());
       latency = std::max(latency, new_latency);
     }
   
@@ -632,7 +632,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   stats_.meshY = meshY;
 }
 
-unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<pair<int,int>>& memory_interfaces) {
+unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<std::pair<int,int>>& memory_interfaces) {
   std::uint64_t last_distance, distance;
   unsigned nearest_id = 0;
 
@@ -650,7 +650,7 @@ unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<pair
   return nearest_id;
 }
 
-void LegacyNetwork::DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<Loop::descriptor>& mapping_nest) {
+void LegacyNetwork::DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<loop::Descriptor>& mapping_nest, problem::Shape::DataSpaceID pv) {
   multicast_groups[spacetime::Dimension::SpaceX] = {};
   multicast_groups[spacetime::Dimension::SpaceY] = {};
   // CALCULATING MULTICAST GROUPS
