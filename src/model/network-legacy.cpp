@@ -26,6 +26,7 @@
  */
 
 #include <iostream>
+#include <fstream>
 #include <memory>
 
 #include "model/util.hpp"
@@ -538,15 +539,15 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 
                 // Vertical 
                 if (y != nearest_mem_interface.first) {
-                  bool down = y < nearest_mem_interface.first;
+                  bool up = y < nearest_mem_interface.first;
                   int i = y; 
                   do
                   {
-                    if (down) {
-                      down_links_traffic[i][x] += ingresses_per_pe;
+                    if (up) {
+                      up_links_traffic[i][x] += ingresses_per_pe;
                       i++;
                     } else {
-                      up_links_traffic[i-1][x] += ingresses_per_pe;
+                      down_links_traffic[i-1][x] += ingresses_per_pe;
                       i--;
                     }
 
@@ -558,15 +559,15 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                 }
 
                 // Horizontal 
-                bool right = x < nearest_mem_interface.second;
+                bool left = x < nearest_mem_interface.second;
                 int j = x; 
                 while (!friend_found && j != nearest_mem_interface.second)
                 {
-                  if (right) {
-                    right_links_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
+                  if (left) {
+                    left_links_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
                     j++;
                   } else {
-                    left_links_traffic[nearest_mem_interface.first][j-1] += ingresses_per_pe;
+                    right_links_traffic[nearest_mem_interface.first][j-1] += ingresses_per_pe;
                     j--;
                   }
 
@@ -630,6 +631,29 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   stats_.throttling = (double)compute_cycles / stats_.cycles;
   stats_.meshX = meshX;
   stats_.meshY = meshY;
+
+  // DEBUG
+  /*
+  std::ofstream logfile;
+  logfile.open("debug.txt", std::ios_base::app);
+
+  logfile << "\n\n" << stats_.cycles << "\nHorizontal\n";
+  for (unsigned i = 0; i < meshY; i++) { 
+    for (unsigned j = 0; j < meshX - 1; j++) {
+      logfile << "( ← " << left_links_traffic[i][j] << " | → " << right_links_traffic[i][j] << " )  ";
+    }
+    logfile << "\n";
+  }
+
+  logfile << "Vertical\n";
+  for (unsigned i = 0; i < meshY - 1; i++) { 
+    for (unsigned j = 0; j < meshX; j++) {
+      logfile << "( ↑ " << up_links_traffic[i][j] << " | ↓ " << down_links_traffic[i][j] << " )  ";
+    }
+    logfile << "\n";
+  }
+  logfile.close();
+  */
 }
 
 unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<std::pair<int,int>>& memory_interfaces) {
