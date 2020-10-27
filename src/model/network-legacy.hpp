@@ -114,6 +114,7 @@ class LegacyNetwork : public Network
     std::uint64_t cycles;
     std::uint64_t meshX, meshY, mapX, mapY;
     double throttling;
+    double custom_energy;
 
     // Redundant stats with outer buffer.
     problem::PerDataSpace<std::uint64_t> utilized_instances;    
@@ -138,6 +139,9 @@ class LegacyNetwork : public Network
         ar& BOOST_SERIALIZATION_NVP(energy_per_hop);
         ar& BOOST_SERIALIZATION_NVP(energy);
         ar& BOOST_SERIALIZATION_NVP(spatial_reduction_energy);
+        // NRC
+        ar& BOOST_SERIALIZATION_NVP(custom_energy);
+        ar& BOOST_SERIALIZATION_NVP(cycles);
       }
     }      
   }; // struct Stats

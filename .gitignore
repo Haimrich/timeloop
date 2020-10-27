@@ -2,6 +2,8 @@
 /src/pat
 /lib/
 /bin/
+/output/
+auto.py
 
 # Generated output
 timeloop-output.pkl

@@ -510,6 +510,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   std::vector<std::vector<std::uint64_t>> right_links_traffic(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
   std::vector<std::vector<std::uint64_t>> up_links_traffic(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
   std::vector<std::vector<std::uint64_t>> down_links_traffic(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
+  std::vector<std::vector<std::uint64_t>> router_traffic(meshY, std::vector<std::uint64_t>(meshX, 0));
 
   double total_ingresses_per_pe = 0;
 
@@ -536,6 +537,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                 std::pair<int,int> nearest_mem_interface = memory_interfaces[nearest_memory_interfaces[y][x]];
 
                 bool friend_found = false;
+                router_traffic[y][x] += ingresses_per_pe;
 
                 // Vertical 
                 if (y != nearest_mem_interface.first) {
@@ -547,11 +549,12 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                       up_links_traffic[i][x] += ingresses_per_pe;
                       i++;
                     } else {
-                      down_links_traffic[i-1][x] += ingresses_per_pe;
                       i--;
+                      down_links_traffic[i][x] += ingresses_per_pe;
                     }
 
                     friend_found = std::find(xg.begin(), xg.end(), x) != xg.end() && std::find(yg.begin(), yg.end(), i) != yg.end();
+                    if (!friend_found) router_traffic[i][x] += ingresses_per_pe;
 
                   } while (!friend_found && i != nearest_mem_interface.first);
 
@@ -567,11 +570,12 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                     left_links_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
                     j++;
                   } else {
-                    right_links_traffic[nearest_mem_interface.first][j-1] += ingresses_per_pe;
                     j--;
+                    right_links_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
                   }
 
                   friend_found = std::find(xg.begin(), xg.end(), j) != xg.end() && std::find(yg.begin(), yg.end(), nearest_mem_interface.first) != yg.end();
+                  if (!friend_found) router_traffic[nearest_mem_interface.first][j] += ingresses_per_pe;
                 }
 
               }
@@ -589,16 +593,16 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
       double new_bottleneck_factor = 1;
 
       if (y != nearest_mem_interface.first) {
-        bool down = y < nearest_mem_interface.first;
+        bool up = y < nearest_mem_interface.first;
         int i = y; 
         do
         {
-          if (down) {
-            new_bottleneck_factor = total_ingresses_per_pe / down_links_traffic[i][x];
+          if (up) {
+            new_bottleneck_factor = total_ingresses_per_pe / up_links_traffic[i][x];
             i++;
           } else {
-            new_bottleneck_factor = total_ingresses_per_pe / up_links_traffic[i-1][x];
             i--;
+            new_bottleneck_factor = total_ingresses_per_pe / down_links_traffic[i][x];
           }
 
           bottleneck_factor = std::min(new_bottleneck_factor, bottleneck_factor);
@@ -606,16 +610,16 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
         } while (i != nearest_mem_interface.first);
       }
 
-      bool right = x < nearest_mem_interface.second;
+      bool left = x < nearest_mem_interface.second;
       int j = x; 
       while (j != nearest_mem_interface.second)
       {
-        if (right) {
-          new_bottleneck_factor = total_ingresses_per_pe / right_links_traffic[nearest_mem_interface.first][j];
+        if (left) {
+          new_bottleneck_factor = total_ingresses_per_pe / left_links_traffic[nearest_mem_interface.first][j];
           j++;
         } else {
-          new_bottleneck_factor = total_ingresses_per_pe / left_links_traffic[nearest_mem_interface.first][j-1];
           j--;
+          new_bottleneck_factor = total_ingresses_per_pe / right_links_traffic[nearest_mem_interface.first][j];
         }
 
         bottleneck_factor = std::min(new_bottleneck_factor, bottleneck_factor);
@@ -633,27 +637,52 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   stats_.meshY = meshY;
 
   // DEBUG
-  /*
+  #define DBGE 0
+
+  #if DBGE == 1
   std::ofstream logfile;
   logfile.open("debug.txt", std::ios_base::app);
 
-  logfile << "\n\n" << stats_.cycles << "\nHorizontal\n";
+  logfile << "\n\n" << stats_.cycles << "\nTraffic\n";
+
+
   for (unsigned i = 0; i < meshY; i++) { 
-    for (unsigned j = 0; j < meshX - 1; j++) {
-      logfile << "( ← " << left_links_traffic[i][j] << " | → " << right_links_traffic[i][j] << " )  ";
-    }
+    for (unsigned j = 0; j < meshX; j++) {
+      logfile << "( R " << router_traffic[i][j] << ")";
+      if (j < meshX - 1) {
+        logfile << "( ← " << left_links_traffic[i][j] << " | → " << right_links_traffic[i][j] << " )  ";
+      }
+    } 
+    logfile << "\n";
+    if (i < meshY - 1) {
+      for (unsigned j = 0; j < meshX; j++) {
+        logfile << "( ↑ " << up_links_traffic[i][j] << " | ↓ " << down_links_traffic[i][j] << " )  ";
+      }
+    } 
     logfile << "\n";
   }
 
-  logfile << "Vertical\n";
-  for (unsigned i = 0; i < meshY - 1; i++) { 
-    for (unsigned j = 0; j < meshX; j++) {
-      logfile << "( ↑ " << up_links_traffic[i][j] << " | ↓ " << down_links_traffic[i][j] << " )  ";
-    }
-    logfile << "\n";
-  }
   logfile.close();
-  */
+  #endif
+
+
+  // CUSTOM NOC ENERGY
+  double total_routers_touched = 0;
+  for (auto &r : router_traffic) 
+    total_routers_touched += std::accumulate(r.begin(), r.end(), 0.0);
+  
+  double total_link_traversal = 0;
+  for (auto &r : left_links_traffic) 
+    total_link_traversal += std::accumulate(r.begin(), r.end(), 0.0);
+  for (auto &r : right_links_traffic) 
+    total_link_traversal += std::accumulate(r.begin(), r.end(), 0.0);
+  for (auto &r : up_links_traffic) 
+    total_link_traversal += std::accumulate(r.begin(), r.end(), 0.0);
+  for (auto &r : down_links_traffic) 
+    total_link_traversal += std::accumulate(r.begin(), r.end(), 0.0);
+
+  stats_.custom_energy = (specs_.energy_per_hop.Get() * total_link_traversal + specs_.router_energy.Get() * total_routers_touched) * stats_.utilized_instances[0];
+
 }
 
 unsigned LegacyNetwork::GetNearestMemoryInterface(int y, int x, std::vector<std::pair<int,int>>& memory_interfaces) {
@@ -798,6 +827,7 @@ void LegacyNetwork::Print(std::ostream& out) const
     out << indent << indent << "Throttling: " << stats_.throttling << "" << std::endl;
     out << indent << indent << "MeshX: " << stats_.meshX << indent << indent << "MapX: " << stats_.mapX << "" << std::endl;
     out << indent << indent << "MeshY: " << stats_.meshY << indent << indent << "MapY: " << stats_.mapY << "" << std::endl;
+    out << indent << indent << "Total Energy (custom): " << stats_.custom_energy << std::endl;
     
     /*
     out << indent << indent << "Entry Points: " << specs_.memory_interfaces.size() << " -> ";
