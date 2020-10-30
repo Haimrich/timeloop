@@ -141,6 +141,16 @@ BufferLevel::Specs BufferLevel::ParseSpecs(config::CompoundConfigNode level, uin
     specs.size = size * 1024 * 8 / specs.word_bits.Get();
   }
 
+  // Compression
+  double compression_ratio;
+  std::string compressed_dataspace;
+  if (buffer.lookupValue("compression-ratio", compression_ratio) &&
+      buffer.lookupValue("compressed-dataspace", compressed_dataspace))
+  {
+    specs.compression_ratio = compression_ratio;
+    specs.compressed_dataspace = compressed_dataspace;
+  }
+
 
   // Technology.
   // Unfortunately ".technology" means different things between ISPASS format
@@ -450,12 +460,26 @@ EvalStatus BufferLevel::PreEvaluationCheck(
     }
 
     // Find the total capacity required by all un-masked data types.
-    std::size_t required_capacity = 0;
-    for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
-    {
-      if (mask[pvi])
+    std::size_t required_capacity = 0; 
+    if (!specs_.compressed_dataspace.IsSpecified()) {
+      for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
       {
-        required_capacity += working_set_sizes.at(problem::Shape::DataSpaceID(pvi));
+        if (mask[pvi])
+        {
+          required_capacity += working_set_sizes.at(problem::Shape::DataSpaceID(pvi));
+        }
+      }
+    } else {
+      unsigned compressed_dataspace = problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get());
+      for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
+      {
+        if (mask[pvi])
+        {
+          if (pvi == compressed_dataspace)
+            required_capacity += std::ceil(working_set_sizes.at(problem::Shape::DataSpaceID(pvi)) * specs_.compression_ratio.Get());
+          else
+            required_capacity += working_set_sizes.at(problem::Shape::DataSpaceID(pvi));
+        }
       }
     }
 
@@ -543,6 +567,7 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
   //
   // 1. Collect stats (stats are always collected per-DataSpaceID).
   //
+  int compressed_dataspace = specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified() ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
   {
     auto pv = problem::Shape::DataSpaceID(pvi);
@@ -550,7 +575,8 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     stats_.keep[pv] = mask[pv];
     
     stats_.partition_size[pv] = tile[pvi].partition_size;
-    stats_.utilized_capacity[pv] = tile[pvi].size;
+    stats_.utilized_capacity[pv] = compressed_dataspace == (int)pvi ? std::ceil(tile[pvi].size * specs_.compression_ratio.Get()) : tile[pvi].size;
+    stats_.utilized_capacity_uncom[pv] = tile[pvi].size;
     stats_.utilized_instances[pv] = tile[pvi].replication_factor;
 
     assert((tile[pvi].size == 0) == (tile[pvi].content_accesses == 0));
@@ -575,9 +601,9 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     }
     else // Read-only data type.
     {
-      stats_.reads[pv] = tile[pvi].content_accesses + tile[pvi].peer_accesses;
+      stats_.reads[pv] = compressed_dataspace == (int)pvi ? std::ceil((tile[pvi].content_accesses + tile[pvi].peer_accesses) * specs_.compression_ratio.Get()) : tile[pvi].content_accesses + tile[pvi].peer_accesses;
       stats_.updates[pv] = 0;
-      stats_.fills[pv] = tile[pvi].fills + tile[pvi].peer_fills;
+      stats_.fills[pv] = compressed_dataspace == (int)pvi ? std::ceil((tile[pvi].fills + tile[pvi].peer_fills) * specs_.compression_ratio.Get()) : tile[pvi].fills + tile[pvi].peer_fills;
       stats_.address_generations[pv] = stats_.reads[pv] + stats_.fills[pv]; // scalar
       stats_.temporal_reductions[pv] = 0;
     }
@@ -985,6 +1011,7 @@ void BufferLevel::Print(std::ostream& out) const
 
       out << indent + indent << "Partition size                           : " << stats.partition_size.at(pv) << std::endl;
       out << indent + indent << "Utilized capacity                        : " << stats.utilized_capacity.at(pv) << std::endl;
+      out << indent + indent << "Utilized capacity (uncompressed)         : " << stats.utilized_capacity_uncom.at(pv) << std::endl;
       out << indent + indent << "Utilized instances (max)                 : " << stats.utilized_instances.at(pv) << std::endl;
       out << indent + indent << "Utilized clusters (max)                  : " << stats.utilized_clusters.at(pv) << std::endl;
       out << indent + indent << "Scalar reads (per-instance)              : " << stats.reads.at(pv) << std::endl;

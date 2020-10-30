@@ -84,6 +84,9 @@ class BufferLevel : public Level
     Attribute<std::uint64_t> num_ports;
     Attribute<std::uint64_t> num_banks;
 
+    Attribute<double> compression_ratio;
+    Attribute<std::string> compressed_dataspace;
+
     Attribute<std::string> read_network_name;
     Attribute<std::string> fill_network_name;
     Attribute<std::string> drain_network_name;
@@ -144,6 +147,7 @@ class BufferLevel : public Level
     problem::PerDataSpace<bool> keep;
     problem::PerDataSpace<std::uint64_t> partition_size;
     problem::PerDataSpace<std::uint64_t> utilized_capacity;
+    problem::PerDataSpace<std::uint64_t> utilized_capacity_uncom;
     problem::PerDataSpace<std::uint64_t> utilized_instances;
     problem::PerDataSpace<std::uint64_t> utilized_clusters;
     problem::PerDataSpace<unsigned long> reads;

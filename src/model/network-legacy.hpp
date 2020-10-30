@@ -67,6 +67,9 @@ class LegacyNetwork : public Network
     std::vector<std::uint64_t> memory_interfaces;
     Attribute<double> bandwidth;      // Bandwidth in words/cycle
     Attribute<double> router_latency; // Router Latency in cycles
+    // Compression
+    Attribute<double> compression_ratio;
+    Attribute<std::string> compressed_dataspace;
 
     const std::string Type() const override { return type; }
 

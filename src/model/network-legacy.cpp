@@ -143,6 +143,17 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
       specs.bandwidth = bandwidth;
   }
 
+  // Compression
+  double compression_ratio;
+  std::string compressed_dataspace;
+  if (network.lookupValue("compression-ratio", compression_ratio) &&
+      network.lookupValue("compressed-dataspace", compressed_dataspace))
+  {
+    specs.compression_ratio = compression_ratio;
+    specs.compressed_dataspace = compressed_dataspace;
+  }
+
+
   return specs;
 }
 
@@ -514,6 +525,8 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 
   double total_ingresses_per_pe = 0;
 
+  int compressed_dataspace = specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified() ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
     for (unsigned f = 0; f < stats_.ingresses.at(pv).size(); f++)
@@ -522,6 +535,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
       {
         auto factor = f + 1;
         std::uint64_t ingresses_per_pe = factor * stats_.ingresses[pv][f] / utilized_instances;
+        ingresses_per_pe = compressed_dataspace == (int)pvi ? std::ceil(ingresses_per_pe * specs_.compression_ratio.Get()) : ingresses_per_pe;
         total_ingresses_per_pe += ingresses_per_pe;
 
         // COMMUNICATION TOPOLOGY
