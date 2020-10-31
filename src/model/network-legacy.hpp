@@ -70,6 +70,10 @@ class LegacyNetwork : public Network
     // Compression
     Attribute<double> compression_ratio;
     Attribute<std::string> compressed_dataspace;
+    // Wireless
+    Attribute<double> wireless_energy; // pJ/word
+    Attribute<double> wireless_multicast_energy; // pJ/word/destination
+    bool wireless; // pJ/word/destination
 
     const std::string Type() const override { return type; }
 
@@ -216,6 +220,8 @@ class LegacyNetwork : public Network
   void DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<loop::Descriptor>& mapping_nest, problem::Shape::DataSpaceID pv);
   bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
   std::uint64_t Cycles() const;
+
+  void ComputePerformanceWireless();
 
   std::uint64_t WordBits() const;
 

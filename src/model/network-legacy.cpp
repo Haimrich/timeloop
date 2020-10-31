@@ -153,6 +153,25 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
     specs.compressed_dataspace = compressed_dataspace;
   }
 
+  // Wireless
+  double wireless_energy, wireless_multicast_energy;
+  if (network.lookupValue("wireless-unicast-energy", wireless_energy) &&
+      network.lookupValue("wireless-multicast-energy", wireless_multicast_energy))
+  {
+    specs.wireless_energy = wireless_energy;
+    specs.wireless_multicast_energy = wireless_multicast_energy;
+    specs.wireless = true;
+  } 
+  else if (network.lookupValue("wireless-energy", wireless_energy)) 
+  {
+    specs.wireless_energy = wireless_energy;
+    specs.wireless = true;
+  } 
+  else 
+  {
+    specs.wireless = false;
+  }
+
 
   return specs;
 }
@@ -212,7 +231,11 @@ EvalStatus LegacyNetwork::Evaluate(const tiling::CompoundTile& tile,
   {
     ComputeNetworkEnergy();
     ComputeSpatialReductionEnergy();
-    ComputePerformance(tile);
+
+    if (specs_.wireless) 
+      ComputePerformanceWireless();
+    else 
+      ComputePerformance(tile);
   }
   return eval_status;
 }
@@ -466,6 +489,42 @@ void LegacyNetwork::ComputeSpatialReductionEnergy()
   }    
 }
 
+void LegacyNetwork::ComputePerformanceWireless()
+{
+  // FIXME - Compute Cycles
+  auto source = source_.lock();
+  std::shared_ptr<BufferLevel> buffer_source = std::dynamic_pointer_cast<BufferLevel>(source);
+  std::uint64_t compute_cycles = buffer_source->Cycles(); 
+  source.reset();
+
+  double cycles = 0;
+  double energy = 0;
+
+  for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
+    auto pv = problem::Shape::DataSpaceID(pvi); 
+    for (unsigned f = 0; f < stats_.ingresses.at(pv).size(); f++)
+    {
+      if (stats_.ingresses[pv][f] > 0)
+      {
+        auto factor = f + 1;
+
+        cycles += stats_.ingresses[pv][f];
+        if (f == 1 || !specs_.wireless_multicast_energy.IsSpecified())
+          energy += stats_.ingresses[pv][f] * specs_.wireless_energy.Get();
+        else 
+          energy += stats_.ingresses[pv][f] * specs_.wireless_multicast_energy.Get() * factor;
+
+        break;
+      }
+    }
+  }
+
+  stats_.custom_energy = energy;
+  stats_.cycles = std::ceil(cycles / specs_.bandwidth.Get());
+  stats_.throttling = (double)compute_cycles / stats_.cycles;
+  stats_.mapX = stats_.mapY = stats_.meshX = stats_.meshY = 0; // FIXME
+}
+
 void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 {
   stats_.cycles = 0;
@@ -593,6 +652,8 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
                 }
 
               }
+
+        break;
       }
     }
   }
