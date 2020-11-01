@@ -500,6 +500,8 @@ void LegacyNetwork::ComputePerformanceWireless()
   double cycles = 0;
   double energy = 0;
 
+  int compressed_dataspace = (specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
     for (unsigned f = 0; f < stats_.ingresses.at(pv).size(); f++)
@@ -507,12 +509,13 @@ void LegacyNetwork::ComputePerformanceWireless()
       if (stats_.ingresses[pv][f] > 0)
       {
         auto factor = f + 1;
+        double ingresses = (compressed_dataspace == (int)pvi) ? stats_.ingresses[pv][f] * specs_.compression_ratio.Get() : stats_.ingresses[pv][f];
 
-        cycles += stats_.ingresses[pv][f];
+        cycles += ingresses;
         if (f == 1 || !specs_.wireless_multicast_energy.IsSpecified())
-          energy += stats_.ingresses[pv][f] * specs_.wireless_energy.Get();
+          energy += ingresses * specs_.wireless_energy.Get();
         else 
-          energy += stats_.ingresses[pv][f] * specs_.wireless_multicast_energy.Get() * factor;
+          energy += ingresses * specs_.wireless_multicast_energy.Get() * factor;
 
         break;
       }
@@ -584,7 +587,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 
   double total_ingresses_per_pe = 0;
 
-  int compressed_dataspace = specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified() ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+  int compressed_dataspace = (specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
 
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
@@ -594,7 +597,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
       {
         auto factor = f + 1;
         std::uint64_t ingresses_per_pe = factor * stats_.ingresses[pv][f] / utilized_instances;
-        ingresses_per_pe = compressed_dataspace == (int)pvi ? std::ceil(ingresses_per_pe * specs_.compression_ratio.Get()) : ingresses_per_pe;
+        ingresses_per_pe = (compressed_dataspace == (int)pvi) ? std::ceil(ingresses_per_pe * specs_.compression_ratio.Get()) : ingresses_per_pe;
         total_ingresses_per_pe += ingresses_per_pe;
 
         // COMMUNICATION TOPOLOGY
