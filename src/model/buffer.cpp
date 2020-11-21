@@ -143,12 +143,16 @@ BufferLevel::Specs BufferLevel::ParseSpecs(config::CompoundConfigNode level, uin
 
   // Compression
   double compression_ratio;
-  std::string compressed_dataspace;
-  if (buffer.lookupValue("compression-ratio", compression_ratio) &&
-      buffer.lookupValue("compressed-dataspace", compressed_dataspace))
+  
+  if (buffer.lookupValue("compression-ratio", compression_ratio))
   {
     specs.compression_ratio = compression_ratio;
-    specs.compressed_dataspace = compressed_dataspace;
+
+    std::string compressed_dataspace;
+    if (buffer.lookupValue("compressed-dataspace", compressed_dataspace))
+      specs.compressed_dataspace = compressed_dataspace;
+    else 
+      specs.compressed_dataspace = std::string("Weights");
   }
 
 
@@ -567,7 +571,7 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
   //
   // 1. Collect stats (stats are always collected per-DataSpaceID).
   //
-  int compressed_dataspace = specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified() ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+  int compressed_dataspace = (specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++)
   {
     auto pv = problem::Shape::DataSpaceID(pvi);
@@ -575,7 +579,7 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     stats_.keep[pv] = mask[pv];
     
     stats_.partition_size[pv] = tile[pvi].partition_size;
-    stats_.utilized_capacity[pv] = compressed_dataspace == (int)pvi ? std::ceil(tile[pvi].size * specs_.compression_ratio.Get()) : tile[pvi].size;
+    stats_.utilized_capacity[pv] = (compressed_dataspace == (int)pvi) ? std::ceil(tile[pvi].size * specs_.compression_ratio.Get()) : tile[pvi].size;
     stats_.utilized_capacity_uncom[pv] = tile[pvi].size;
     stats_.utilized_instances[pv] = tile[pvi].replication_factor;
 
@@ -601,9 +605,9 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     }
     else // Read-only data type.
     {
-      stats_.reads[pv] = compressed_dataspace == (int)pvi ? std::ceil((tile[pvi].content_accesses + tile[pvi].peer_accesses) * specs_.compression_ratio.Get()) : tile[pvi].content_accesses + tile[pvi].peer_accesses;
+      stats_.reads[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].content_accesses + tile[pvi].peer_accesses) * specs_.compression_ratio.Get()) : tile[pvi].content_accesses + tile[pvi].peer_accesses;
       stats_.updates[pv] = 0;
-      stats_.fills[pv] = compressed_dataspace == (int)pvi ? std::ceil((tile[pvi].fills + tile[pvi].peer_fills) * specs_.compression_ratio.Get()) : tile[pvi].fills + tile[pvi].peer_fills;
+      stats_.fills[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].fills + tile[pvi].peer_fills) * specs_.compression_ratio.Get()) : tile[pvi].fills + tile[pvi].peer_fills;
       stats_.address_generations[pv] = stats_.reads[pv] + stats_.fills[pv]; // scalar
       stats_.temporal_reductions[pv] = 0;
     }

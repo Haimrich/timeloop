@@ -145,12 +145,16 @@ LegacyNetwork::Specs LegacyNetwork::ParseSpecs(config::CompoundConfigNode networ
 
   // Compression
   double compression_ratio;
-  std::string compressed_dataspace;
-  if (network.lookupValue("compression-ratio", compression_ratio) &&
-      network.lookupValue("compressed-dataspace", compressed_dataspace))
+  
+  if (network.lookupValue("compression-ratio", compression_ratio))
   {
     specs.compression_ratio = compression_ratio;
-    specs.compressed_dataspace = compressed_dataspace;
+
+    std::string compressed_dataspace;
+    if (network.lookupValue("compressed-dataspace", compressed_dataspace))
+      specs.compressed_dataspace = compressed_dataspace;
+    else 
+      specs.compressed_dataspace = std::string("Weights");
   }
 
   // Wireless
@@ -500,7 +504,7 @@ void LegacyNetwork::ComputePerformanceWireless()
   double cycles = 0;
   double energy = 0;
 
-  int compressed_dataspace = (specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+  int compressed_dataspace = (specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
 
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
@@ -513,9 +517,9 @@ void LegacyNetwork::ComputePerformanceWireless()
 
         cycles += ingresses;
         if (f == 1 || !specs_.wireless_multicast_energy.IsSpecified())
-          energy += ingresses * specs_.wireless_energy.Get();
+          energy += ingresses * specs_.word_bits.Get() * specs_.wireless_energy.Get();
         else 
-          energy += ingresses * specs_.wireless_multicast_energy.Get() * factor;
+          energy += ingresses * specs_.word_bits.Get() * specs_.wireless_multicast_energy.Get() * factor;
 
         break;
       }
@@ -578,7 +582,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
     for (int x = 0; x < (int)stats_.mapX; x++)
       nearest_memory_interfaces[y][x] = GetNearestMemoryInterface(y, x, memory_interfaces);
 
-  // LINK TRAFFIC
+  // LINK TRAFFIC 
   std::vector<std::vector<std::uint64_t>> left_links_traffic(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
   std::vector<std::vector<std::uint64_t>> right_links_traffic(meshY, std::vector<std::uint64_t>(meshX - 1, 0));
   std::vector<std::vector<std::uint64_t>> up_links_traffic(meshY - 1, std::vector<std::uint64_t>(meshX, 0));
@@ -587,7 +591,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
 
   double total_ingresses_per_pe = 0;
 
-  int compressed_dataspace = (specs_.compressed_dataspace.IsSpecified() && specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
+  int compressed_dataspace = (specs_.compression_ratio.IsSpecified()) ? problem::GetShape()->DataSpaceNameToID.at(specs_.compressed_dataspace.Get()) : -1;
 
   for (unsigned pvi = 0; pvi < unsigned(problem::GetShape()->NumDataSpaces); pvi++) {
     auto pv = problem::Shape::DataSpaceID(pvi); 
@@ -715,13 +719,13 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile)
   stats_.meshY = meshY;
 
   // DEBUG
-  #define DBGE 0
+  #define DBGE 1
 
   #if DBGE == 1
   std::ofstream logfile;
   logfile.open("debug.txt", std::ios_base::app);
 
-  logfile << "\n\n" << stats_.cycles << "\nTraffic\n";
+  logfile << "\n\n" << stats_.cycles << "\nTraffic " << specs_.name << "\n";
 
 
   for (unsigned i = 0; i < meshY; i++) { 
@@ -897,7 +901,7 @@ void LegacyNetwork::Print(std::ostream& out) const
 
   out << std::endl;
 
-  if (specs_.router_latency.IsSpecified() && specs_.router_latency.IsSpecified() && specs_.memory_interfaces.size() != 0) {
+  if (specs_.wireless || (specs_.router_latency.IsSpecified() && specs_.router_latency.IsSpecified() && specs_.memory_interfaces.size() != 0)) {
     
     out << indent << "PERFORMANCE" << std::endl;
     out << indent << "-----" << std::endl;
