@@ -506,7 +506,7 @@ void LegacyNetwork::ComputePerformanceWireless(const std::uint64_t compute_cycle
       if (stats_.ingresses[pv][f] > 0)
       {
         auto factor = f + 1;
-        double ingresses = (compressed_dataspace == (int)pvi) ? stats_.ingresses[pv][f] * specs_.compression_ratio.Get() : stats_.ingresses[pv][f];
+        double ingresses = (compressed_dataspace == (int)pvi) ? stats_.ingresses[pv][f] / specs_.compression_ratio.Get() : stats_.ingresses[pv][f];
 
         cycles += ingresses;
         stats_.custom_cycles[pv] = std::ceil(ingresses / specs_.bandwidth.Get());
@@ -593,7 +593,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile, const s
       {
         auto factor = f + 1;
         std::uint64_t ingresses_per_pe = factor * stats_.ingresses[pv][f] / utilized_instances;
-        ingresses_per_pe = (compressed_dataspace == (int)pvi) ? std::ceil(ingresses_per_pe * specs_.compression_ratio.Get()) : ingresses_per_pe;
+        ingresses_per_pe = (compressed_dataspace == (int)pvi) ? std::ceil(ingresses_per_pe / specs_.compression_ratio.Get()) : ingresses_per_pe;
         total_ingresses_per_pe += ingresses_per_pe;
 
         // COMMUNICATION TOPOLOGY

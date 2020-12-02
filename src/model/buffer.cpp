@@ -480,7 +480,7 @@ EvalStatus BufferLevel::PreEvaluationCheck(
         if (mask[pvi])
         {
           if (pvi == compressed_dataspace)
-            required_capacity += std::ceil(working_set_sizes.at(problem::Shape::DataSpaceID(pvi)) * specs_.compression_ratio.Get());
+            required_capacity += std::ceil(working_set_sizes.at(problem::Shape::DataSpaceID(pvi)) / specs_.compression_ratio.Get());
           else
             required_capacity += working_set_sizes.at(problem::Shape::DataSpaceID(pvi));
         }
@@ -579,7 +579,7 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     stats_.keep[pv] = mask[pv];
     
     stats_.partition_size[pv] = tile[pvi].partition_size;
-    stats_.utilized_capacity[pv] = (compressed_dataspace == (int)pvi) ? std::ceil(tile[pvi].size * specs_.compression_ratio.Get()) : tile[pvi].size;
+    stats_.utilized_capacity[pv] = (compressed_dataspace == (int)pvi) ? std::ceil(tile[pvi].size / specs_.compression_ratio.Get()) : tile[pvi].size;
     stats_.utilized_capacity_uncom[pv] = tile[pvi].size;
     stats_.utilized_instances[pv] = tile[pvi].replication_factor;
 
@@ -605,9 +605,9 @@ EvalStatus BufferLevel::ComputeAccesses(const tiling::CompoundTile& tile,
     }
     else // Read-only data type.
     {
-      stats_.reads[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].content_accesses + tile[pvi].peer_accesses) * specs_.compression_ratio.Get()) : tile[pvi].content_accesses + tile[pvi].peer_accesses;
+      stats_.reads[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].content_accesses + tile[pvi].peer_accesses) / specs_.compression_ratio.Get()) : tile[pvi].content_accesses + tile[pvi].peer_accesses;
       stats_.updates[pv] = 0;
-      stats_.fills[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].fills + tile[pvi].peer_fills) * specs_.compression_ratio.Get()) : tile[pvi].fills + tile[pvi].peer_fills;
+      stats_.fills[pv] = (compressed_dataspace == (int)pvi) ? std::ceil((tile[pvi].fills + tile[pvi].peer_fills) / specs_.compression_ratio.Get()) : tile[pvi].fills + tile[pvi].peer_fills;
       stats_.address_generations[pv] = stats_.reads[pv] + stats_.fills[pv]; // scalar
       stats_.temporal_reductions[pv] = 0;
     }
