@@ -204,8 +204,9 @@ double SimpleMulticastNetwork::GetMulticastEnergyByDataType(std::uint64_t multic
 }
 
 EvalStatus SimpleMulticastNetwork::Evaluate(const tiling::CompoundTile& tile,
-                              const bool break_on_failure)
+                              const bool break_on_failure, const std::uint64_t compute_cycles)
 {
+  (void) compute_cycles;
   (void) tile;
   (void) break_on_failure;
 

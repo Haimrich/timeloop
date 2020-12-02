@@ -149,8 +149,9 @@ void ReductionTreeNetwork::SetTileWidth(double width_um)
 }
 
 EvalStatus ReductionTreeNetwork::Evaluate(const tiling::CompoundTile& tile,
-                              const bool break_on_failure)
+                              const bool break_on_failure, const std::uint64_t compute_cycles)
 {
+  (void) compute_cycles;
   (void) break_on_failure;
   assert(specs_.cType == UpdateDrain); // ReductionTreeNetwork can only be used in update-drain connection
 

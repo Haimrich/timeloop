@@ -101,7 +101,7 @@ class Network : public Module
   virtual void SetTileWidth(double width_um) = 0;
 
   virtual EvalStatus Evaluate(const tiling::CompoundTile& tile,
-                              const bool break_on_failure) = 0;
+                              const bool break_on_failure, const std::uint64_t compute_cycles) = 0;
 
   virtual void Print(std::ostream& out) const = 0;
 

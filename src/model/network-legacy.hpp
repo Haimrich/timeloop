@@ -121,7 +121,8 @@ class LegacyNetwork : public Network
     std::uint64_t cycles;
     std::uint64_t meshX, meshY, mapX, mapY;
     double throttling;
-    double custom_energy;
+    problem::PerDataSpace<std::uint64_t> custom_cycles;
+    problem::PerDataSpace<double> custom_energy;
 
     // Redundant stats with outer buffer.
     problem::PerDataSpace<std::uint64_t> utilized_instances;    
@@ -148,6 +149,7 @@ class LegacyNetwork : public Network
         ar& BOOST_SERIALIZATION_NVP(spatial_reduction_energy);
         // NRC
         ar& BOOST_SERIALIZATION_NVP(custom_energy);
+        ar& BOOST_SERIALIZATION_NVP(custom_cycles);
         ar& BOOST_SERIALIZATION_NVP(cycles);
       }
     }      
@@ -209,19 +211,19 @@ class LegacyNetwork : public Network
   void SetTileWidth(double width_um);
 
   EvalStatus Evaluate(const tiling::CompoundTile& tile,
-                      const bool break_on_failure);
+                      const bool break_on_failure, const std::uint64_t compute_cycles);
 
   EvalStatus ComputeAccesses(const tiling::CompoundTile& tile, const bool break_on_failure);
   void ComputeNetworkEnergy();
   void ComputeSpatialReductionEnergy();
 
-  void ComputePerformance(const tiling::CompoundTile& tile);
+  void ComputePerformance(const tiling::CompoundTile& tile, const std::uint64_t compute_cycles);
   unsigned GetNearestMemoryInterface(int y, int x, std::vector<std::pair<int,int>>& memory_interfaces);
   void DetermineCommunicationTopology(std::map<spacetime::Dimension, std::vector<std::vector<int>>>& multicast_groups, std::vector<loop::Descriptor>& mapping_nest, problem::Shape::DataSpaceID pv);
   bool IsDimensionProjectionOfDataspace(problem::Shape::DimensionID dimension_id, problem::Shape::DataSpaceID dataspace_id);
   std::uint64_t Cycles() const;
 
-  void ComputePerformanceWireless();
+  void ComputePerformanceWireless(const std::uint64_t compute_cycles);
 
   std::uint64_t WordBits() const;
 

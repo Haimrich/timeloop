@@ -170,7 +170,7 @@ class ReductionTreeNetwork : public Network
   void SetTileWidth(double width_um);
  
   EvalStatus Evaluate(const tiling::CompoundTile& tile,
-                              const bool break_on_failure);
+                              const bool break_on_failure, const std::uint64_t compute_cycles);
   // PAT interface.
   static double WireEnergyPerHop(std::uint64_t word_bits, const double hop_distance, double wire_energy_override);
   static double AdderEnergy(std::uint64_t word_bits, double adder_energy_override);

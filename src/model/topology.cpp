@@ -1029,7 +1029,7 @@ std::vector<EvalStatus> Topology::Evaluate(Mapping& mapping,
     EvalStatus s;
     if (!rf_net->IsEvaluated())
     {
-      s = rf_net->Evaluate(tiles[connection_id], break_on_failure);
+      s = rf_net->Evaluate(tiles[connection_id], break_on_failure, compute_cycles);
       eval_status.at(connection_id).success &= s.success;
       eval_status.at(connection_id).fail_reason += s.fail_reason;
       success_accum &= s.success;
@@ -1041,7 +1041,7 @@ std::vector<EvalStatus> Topology::Evaluate(Mapping& mapping,
     auto du_net = connection.drain_update_network;
     if (!du_net->IsEvaluated())
     {
-      s = du_net->Evaluate(tiles[connection_id], break_on_failure);
+      s = du_net->Evaluate(tiles[connection_id], break_on_failure, compute_cycles);
       eval_status.at(connection_id).success &= s.success;
       eval_status.at(connection_id).fail_reason += s.fail_reason;
       success_accum &= s.success;
