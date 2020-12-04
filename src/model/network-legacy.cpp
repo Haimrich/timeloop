@@ -529,7 +529,7 @@ void LegacyNetwork::ComputePerformance(const tiling::CompoundTile& tile, const s
 {
   stats_.cycles = 0;
 
-  assert(specs_.router_latency.IsSpecified() && specs_.bandwidth.IsSpecified() && specs_.memory_interfaces.size());
+  if(!specs_.memory_interfaces.size() || !specs_.bandwidth.IsSpecified() || !specs_.router_latency.IsSpecified()) return;
 
   auto source = source_.lock();
   auto sink = sink_.lock();
