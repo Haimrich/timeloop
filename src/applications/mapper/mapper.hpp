@@ -314,6 +314,7 @@ class Application
     std::string stats_file_name = out_prefix_ + ".stats.txt";
     std::string xml_file_name = out_prefix_ + ".map+stats.xml";
     std::string map_txt_file_name = out_prefix_ + ".map.txt";
+    std::string map_yaml_file_name = out_prefix_ + ".map.yaml";
     std::string map_cfg_file_name = out_prefix_ + ".map.cfg";
     std::string map_cpp_file_name = out_prefix_ + ".map.cpp";
     
@@ -515,6 +516,10 @@ class Application
       global_best_.mapping.PrettyPrint(map_txt_file, arch_specs_.topology.StorageLevelNames(),
                                       global_best_.stats.tile_sizes);
       map_txt_file.close();
+
+      std::ofstream map_yaml_file(map_yaml_file_name);
+      global_best_.mapping.PrintYaml(map_yaml_file, arch_specs_.topology.StorageLevelNames());
+      map_yaml_file.close();
 
       // Re-evaluate the mapping so that we get a live engine with complete specs and stats
       // that can be printed out hierarchically.
